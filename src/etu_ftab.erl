@@ -5,12 +5,12 @@
 -export([migrate/2]).
 
 %% API
--spec migrate(etu:chunks(), etu:module_opts()) -> etu:chunks().
-migrate(Chunks0, Opts) ->
+-spec migrate({tuple(), etu:chunks()}, etu:module_opts()) -> etu:chunks().
+migrate({Atoms, Chunks0}, Opts) ->
     LocalTab1 = chunk_to_tab(<<"LocT">>, Chunks0),
     ExportTab1 = chunk_to_tab(<<"ExpT">>, Chunks0),
-    {Migrate, LocalTab2} = candidates(LocalTab1, Opts),
-    ExportTab2 = merge(ExportTab1, Migrate),
+    {Migrated, LocalTab2} = candidates(LocalTab1, Atoms, Opts),
+    ExportTab2 = merge(ExportTab1, Migrated),
     Chunks1 = add_to_chunks(LocalTab2, <<"LocT">>, Chunks0),
     add_to_chunks(ExportTab2, <<"ExpT">>, Chunks1).
 
@@ -44,5 +44,21 @@ decode_tab(N, <<NameIx:32, Arity:32, Label:32, Rest/binary>>, Acc) ->
 merge(X, Y) ->
     lists:keysort(#function.name_ix, X ++ Y).
 
-candidates(LocalTab, _Opts) ->
-    {LocalTab, []}.
+candidates(LocalTab, Atoms, Opts) ->
+    lists:foldl(fun(Opt, {Migrated0, Left0}) ->
+                F = candidates_partition_fun(Opt, Atoms),
+                {Migrated1, Left1} = lists:partition(F, Left0),
+                {Migrated1 ++ Migrated0, Left1}
+        end, {[], LocalTab}, Opts).
+
+candidates_partition_fun(locals, Atoms) ->
+    fun(F) -> not is_closure(F, Atoms) end;
+candidates_partition_fun(closures, Atoms) ->
+    fun(F) -> is_closure(F, Atoms) end.
+
+is_closure(#function{name_ix = Index}, Atoms) ->
+    Name = element(Index, Atoms),
+    case re:run(Name, <<"^-.+/\\d+-fun-\\d+-$">>) of
+        {match, _} -> true;
+        nomatch    -> false
+    end.

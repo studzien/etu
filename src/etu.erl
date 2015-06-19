@@ -25,22 +25,15 @@ m(Module) ->
 m(Module, Opts) ->
     case code:get_object_code(Module) of
         {Module, Code0, Filename} ->
-            Chunks1 = etu_beam:decode(Code0),
-            Chunks2 = etu_ftab:migrate(Chunks1, decode_opts(Opts, [all])),
-            Code1 = etu_beam:encode(Chunks2),
+            Beam = etu_beam:decode(Code0),
+            Chunks = etu_ftab:migrate(Beam, decode_opts(Opts, [locals])),
+            Code1 = etu_beam:encode(Chunks),
             maybe_load_code(Module, Filename, Code1, [], Opts);
         error ->
             {error, bad_module}
     end.
 
 %% Internal
-decode_opts([], Acc) ->
-    Acc;
-decode_opts([closures|Tl], Acc) ->
-    decode_opts(Tl, [closures|Acc]);
-decode_opts([_|Tl], Acc) ->
-    decode_opts(Tl, Acc).
-
 maybe_load_code(Module, Filename, Binary, Exported, Opts) ->
     case {code:is_sticky(Module), lists:member(sticky, Opts)} of
         {true, true} ->
@@ -59,3 +52,14 @@ load_code(Module, Filename, Binary, Exported) ->
         Error ->
             Error
     end.
+
+decode_opts([], Acc) ->
+    Acc;
+decode_opts([Hd|Tl], Acc) ->
+    case is_opt(Hd) of
+        true  -> decode_opts(Tl, [Hd|Acc]);
+        false -> decode_opts(Tl, Acc)
+    end.
+
+is_opt(closures) -> true;
+is_opt(_)        -> false.
